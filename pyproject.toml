@@ -1,0 +1,38 @@
+[tool.poetry]
+name = "git-river"
+version = "1.0.0"
+description = "Tools for working with upstream repositories"
+authors = ["Sam Clements <sclements@datto.com>"]
+license = "MPL-2.0"
+packages = [{ include = "git_river" }]
+
+[tool.poetry.dependencies]
+python = ">=3.9,<4.0"
+appdirs = "*"
+click = "*"
+colorama = "^0.4.4"
+GitPython = "*"
+giturlparse = "*"
+pydantic = "^1.8.2"
+PyGithub = "^1.55"
+python-gitlab = "*"
+structlog = "*"
+inflect = "^5.3.0"
+
+[tool.poetry.dev-dependencies]
+black = { version = "*", allow-prereleases = true }
+pytest = { version = "*" }
+mypy = "^0.910"
+
+[tool.poetry.scripts]
+git-river = "git_river.cli:main"
+
+[tool.black]
+line-length = 100
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[build-system]
+requires = ["poetry_core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
