@@ -52,6 +52,9 @@ class GitConfigKey:
         return cls(section, option)
 
 
+GitConfig = typing.Dict[GitConfigKey, typing.Optional[str]]
+
+
 @dataclasses.dataclass()
 class Repository:
     name: str

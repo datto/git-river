@@ -56,33 +56,87 @@ class RepositoryManager:
         return len(self.repos) == 0
 
 
+T = typing.TypeVar("T")
+
+
+def value_or_default(value: typing.Optional[T], default: T) -> T:
+    return default if value is None else value
+
+
 @click.group(name="forge", invoke_without_command=True)
 @click.option(
     "-f",
     "--forge",
-    "forge",
+    "select_forges",
+    default=(),
+    multiple=True,
+    help="Use repositories from specific forges.",
+)
+@click.option(
+    "-g",
+    "-o",
+    "--group",
+    "--organization",
+    "select_groups",
+    default=(),
+    multiple=True,
+    help="Use repositories from specific groups.",
+)
+@click.option(
+    "-u",
+    "--user",
+    "select_users",
+    default=(),
+    multiple=True,
+    help="Use repositories from specific users.",
+)
+@click.option(
+    "-s",
+    "--self",
+    "select_self",
     default=None,
-    help="Use repositories from a specific forge.",
+    is_flag=True,
+    help="Use repositories from specific users.",
 )
 @click.pass_context
 def main(
     ctx: click.Context,
-    forge: typing.Optional[str],
+    select_forges: typing.Sequence[str],
+    select_groups: typing.Sequence[str],
+    select_users: typing.Sequence[str],
+    select_self: typing.Optional[bool],
 ) -> None:
     """
     Clone and manage repositories from GitLab and GitHub in bulk.
 
+    Selects from all forges unless '--forge' flags are passed.
+
+    Selects from all repositories unless any '--group', '--user', or '--self' flags are passed.
+
     Invokes the clone, configure, and remotes subcommands when no subcommand is given.
     """
     config = ctx.ensure_object(git_river.config.Config)
-    manager = ctx.obj = RepositoryManager()
+    ctx.obj = RepositoryManager()
 
-    if forge is not None:
-        manager.extend(config.repositories_from_forge(forge))
+    if select_forges:
+        forges_config = config.select_forges(select_forges)
     else:
-        manager.extend(config.repositories())
+        forges_config = config.all_forges()
 
-    if manager.empty():
+    for forge_config in forges_config:
+        if any((select_self is not None, select_users, select_groups)):
+            ctx.obj.extend(
+                forge_config.select_repositories(
+                    workspace=config.workspace,
+                    select_self=value_or_default(select_self, False),
+                    select_users=value_or_default(select_users, []),
+                    select_groups=value_or_default(select_groups, []),
+                )
+            )
+        else:
+            ctx.obj.extend(forge_config.all_repositories(workspace=config.workspace))
+
+    if ctx.obj.empty():
         ctx.fail("No repositories selected")
 
     if ctx.invoked_subcommand is None:
@@ -112,13 +166,13 @@ def clone_repositories(workspace: RepositoryManager) -> None:
     logger.info("Cloning missing repositories", repositories=len(repositories))
     groups = itertools.groupby(repositories, key=lambda r: r.group)
     cloned = []
-    for instance, iterable in groups:
+    for group, iterable in groups:
         with git_river.ext.click.progressbar(
             iterable=list(iterable),
             event="Cloning missing repositories",
             item_show_func=lambda p: p.path.as_posix(),
             logger_name=__name__,
-            instance=str(instance),
+            group=str(group),
         ) as progress:
             for repo in progress:
                 repo.clone(verbose=False)

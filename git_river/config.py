@@ -26,6 +26,7 @@ import pathlib
 import typing
 
 import appdirs
+import click
 import github
 import github.MainClass
 import github.Repository
@@ -36,9 +37,8 @@ import structlog
 import structlog.stdlib
 
 import git_river
-import git_river.ext.click
-import git_river.ext.gitlab
-from git_river.repository import GitConfigKey, RemoteRepository
+from git_river.repository import GitConfig, GitConfigKey, RemoteRepository
+from git_river.forge import GitHub, GitLab
 
 logger = structlog.get_logger(logger_name=__name__)
 
@@ -47,34 +47,107 @@ CACHE_DIRECTORY = pathlib.Path(appdirs.user_cache_dir(git_river.__app__))
 CONFIG_PATH = CONFIG_DIRECTORY / "config.json"
 
 
-class Forge(pydantic.BaseModel, abc.ABC):
+class ForgeConfig(pydantic.BaseModel, abc.ABC):
     gitconfig: typing.Mapping[str, typing.Optional[str]] = pydantic.Field(default_factory=dict)
-    exclude: typing.Set[str] = pydantic.Field(default_factory=set)
 
     class Config:
         # Validate default values - essential so that base_url is converted to pydantic.HttpUrl.
         validate_all = True
 
-    def __str__(self) -> str:
-        return self.domain
-
-    @property
-    @abc.abstractmethod
-    def domain(self) -> str:
-        raise NotImplementedError
-
-    def git_config_options(self) -> typing.MutableMapping[GitConfigKey, typing.Optional[str]]:
+    def git_config_options(self) -> GitConfig:
         return {GitConfigKey.parse(key): value for key, value in self.gitconfig.items()}
 
-    def excluded_by_name(self, name: str) -> bool:
-        return name in self.exclude
+    @abc.abstractmethod
+    def all_repositories(
+        self,
+        workspace: pathlib.Path,
+    ) -> typing.Iterable[RemoteRepository]:
+        raise NotImplementedError
 
     @abc.abstractmethod
-    def remote_repositories(self, workspace: pathlib.Path) -> typing.Iterable[RemoteRepository]:
+    def select_repositories(
+        self,
+        workspace: pathlib.Path,
+        select_self: bool,
+        select_users: typing.Sequence[str],
+        select_groups: typing.Sequence[str],
+    ) -> typing.Iterable[RemoteRepository]:
         raise NotImplementedError
 
 
-class GitLab(Forge):
+class GitHubConfig(ForgeConfig):
+    type: typing.Literal["github"]
+
+    base_url: pydantic.HttpUrl = pydantic.Field("https://api.github.com")
+    login_or_token: pydantic.SecretStr = pydantic.Field()
+
+    users: typing.Sequence[str] = pydantic.Field(default_factory=list)
+    organizations: typing.Sequence[str] = pydantic.Field(default_factory=list)
+    self: bool = pydantic.Field(default=True)
+
+    def forge(self, workspace: pathlib.Path) -> GitHub:
+        if self.base_url.host is None:
+            raise Exception(f"Could not determine host for {self.base_url!r}")
+
+        domain = self.base_url.host
+        if domain.startswith("api."):
+            domain = domain.removeprefix("api.")
+
+        client = github.Github(
+            base_url=self.base_url,
+            login_or_token=self.login_or_token.get_secret_value(),
+        )
+
+        return GitHub(
+            client=client,
+            domain=domain,
+            gitconfig=self.git_config_options(),
+            workspace=workspace,
+        )
+
+    def all_repositories(
+        self,
+        workspace: pathlib.Path,
+    ) -> typing.Iterable[RemoteRepository]:
+        forge = self.forge(workspace)
+
+        for organization in self.organizations:
+            yield from forge.repositories_organization(organization)
+
+        for user in self.users:
+            yield from forge.repositories_user(user)
+
+        if self.self:
+            yield from forge.repositories_self()
+
+    def select_repositories(
+        self,
+        workspace: pathlib.Path,
+        select_self: bool,
+        select_users: typing.Sequence[str],
+        select_groups: typing.Sequence[str],
+    ) -> typing.Iterable[RemoteRepository]:
+        forge = self.forge(workspace)
+
+        for organization in self.organizations:
+            if organization in select_groups:
+                yield from forge.repositories_organization(organization)
+            else:
+                forge.logger.info("Skipping GitHub organization", organization=organization)
+
+        for user in self.users:
+            if user in select_users:
+                yield from forge.repositories_user(user)
+            else:
+                forge.logger.info("Skipping GitHub user", user=user)
+
+        if select_self:
+            yield from forge.repositories_self()
+        else:
+            forge.logger.info("Skipping GitHub self")
+
+
+class GitLabConfig(ForgeConfig):
     type: typing.Literal["gitlab"]
 
     base_url: pydantic.HttpUrl = pydantic.Field(default="https://gitlab.com")
@@ -91,163 +164,69 @@ class GitLab(Forge):
 
         return self.base_url.host
 
-    def all_projects(self) -> typing.Iterable[git_river.ext.gitlab.Project]:
+    def forge(self, workspace: pathlib.Path) -> GitLab:
+        if self.base_url.host is None:
+            raise Exception(f"Could not determine host for {self.base_url!r}")
+
         client = gitlab.Gitlab(
             url=self.base_url,
             private_token=self.private_token.get_secret_value(),
         )
-        log = logger.bind(type="GitLab", url=client.url)
 
-        for path in self.groups:
-            log.info("Listing GitLab group projects", id=path)
-            group = client.groups.get(path, lazy=True)
-            yield from group.projects.list(  # type: ignore
-                all=True,
-                per_page=100,
-                archived=False,
-                as_list=False,
-                include_subgroups=True,
-            )
-
-        for path in self.users:
-            log.info("Listing GitLab user projects", id=path)
-            user = client.users.get(path, lazy=True)
-            yield from user.projects.list(  # type: ignore
-                all=True,
-                per_page=100,
-                archived=False,
-                as_list=False,
-                include_subgroups=True,
-            )
-
-        if self.self:
-            log.debug("Getting current GitLab user")
-            client.auth()
-
-            if client.user:
-                log.info("Listing GitLab self projects", id=client.user.id)
-                user = client.users.get(client.user.id, lazy=True)
-                yield from user.projects.list(  # type: ignore
-                    all=True,
-                    archived=False,
-                    as_list=False,
-                    include_subgroups=True,
-                    per_page=100,
-                )
-
-    def projects(self) -> typing.Iterable[git_river.ext.gitlab.Project]:
-        for project in self.all_projects():
-            if self.excluded_by_name(project.path):
-                logger.debug("Excluding project", project=project, path=project.path)
-                continue
-
-            yield project
-
-    def remote_repositories(self, workspace: pathlib.Path) -> typing.Iterable[RemoteRepository]:
-        forge_config = self.git_config_options()
-
-        for project in self.projects():
-            if parent := git_river.ext.gitlab.forked_from_project(project):
-                remote_config = {GitConfigKey("remote", "pushdefault"): "downstream"}
-                remotes = {
-                    "origin": None,
-                    "upstream": parent["ssh_url_to_repo"],
-                    "downstream": project.ssh_url_to_repo,
-                }
-            else:
-                remote_config = {GitConfigKey("remote", "pushdefault"): "origin"}
-                remotes = {"origin": project.ssh_url_to_repo}
-
-            yield RemoteRepository(
-                clone_url=project.ssh_url_to_repo,
-                config={**remote_config, **forge_config},
-                group=str(self),
-                name=f"{self.domain}/{project.path_with_namespace}",
-                path=workspace / self.domain / project.path_with_namespace,
-                remotes=remotes,
-                default_branch=project.default_branch,
-                archived=project.archived,
-            )
-
-
-class GitHub(Forge):
-    type: typing.Literal["github"]
-
-    base_url: pydantic.HttpUrl = pydantic.Field("https://api.github.com")
-    login_or_token: pydantic.SecretStr = pydantic.Field()
-
-    users: typing.Sequence[str] = pydantic.Field(default_factory=list)
-    organizations: typing.Sequence[str] = pydantic.Field(default_factory=list)
-    self: bool = pydantic.Field(default=True)
-
-    @property
-    def domain(self) -> str:
-        if self.base_url.host is None:
-            raise Exception(f"Could not determine host for {self.base_url!r}")
-
-        if self.base_url.host.startswith("api."):
-            return self.base_url.host.removeprefix("api.")
-
-        return self.base_url.host
-
-    def all_repositories(self) -> typing.Iterable[github.Repository.Repository]:
-        client = github.Github(
-            base_url=self.base_url,
-            login_or_token=self.login_or_token.get_secret_value(),
+        return GitLab(
+            client=client,
+            domain=self.base_url.host,
+            gitconfig=self.git_config_options(),
+            workspace=workspace,
         )
-        log = logger.bind(type="GitHub", url=self.base_url)
 
-        for organization in self.organizations:
-            log.info("Listing GitHub organisation repos", id=organization)
-            yield from client.get_organization(organization).get_repos()
+    def all_repositories(
+        self,
+        workspace: pathlib.Path,
+    ) -> typing.Iterable[RemoteRepository]:
+        forge = self.forge(workspace)
+
+        for group in self.groups:
+            yield from forge.repositories_group(group)
 
         for user in self.users:
-            log.info("Listing GitHub user repos", id=user)
-            yield from client.get_user(user).get_repos()
+            yield from forge.repositories_user(user)
 
         if self.self:
-            auth = client.get_user()
-            log.info("Listing GitHub self repos", id=auth.id)
-            yield from client.get_user().get_repos()
+            yield from forge.repositories_self()
 
-    def repositories(self) -> typing.Iterable[github.Repository.Repository]:
-        for repository in self.all_repositories():
-            if self.excluded_by_name(repository.name):
-                logger.debug("Excluding project", repository=repository, name=repository.name)
-                continue
+    def select_repositories(
+        self,
+        workspace: pathlib.Path,
+        select_self: bool,
+        select_users: typing.Sequence[str],
+        select_groups: typing.Sequence[str],
+    ) -> typing.Iterable[RemoteRepository]:
+        forge = self.forge(workspace)
 
-            yield repository
-
-    def remote_repositories(self, workspace: pathlib.Path) -> typing.Iterable[RemoteRepository]:
-        forge_config = self.git_config_options()
-
-        for repository in self.repositories():
-            if repository.parent is None:
-                remote_config = {GitConfigKey("remote", "pushdefault"): "origin"}
-                remotes = {"origin": repository.ssh_url}
+        for group in self.groups:
+            if group in select_groups:
+                yield from forge.repositories_group(group)
             else:
-                remote_config = {GitConfigKey("remote", "pushdefault"): "downstream"}
-                remotes = {
-                    "origin": None,
-                    "upstream": repository.parent.ssh_url,
-                    "downstream": repository.ssh_url,
-                }
+                forge.logger.info("Skipping GitLab group", group=group)
 
-            yield RemoteRepository(
-                clone_url=repository.ssh_url,
-                config={**remote_config, **forge_config},
-                group=str(self),
-                name=f"{self.domain}/{repository.full_name}",
-                path=workspace / self.domain / repository.full_name,
-                remotes=remotes,
-                default_branch=repository.default_branch,
-                archived=repository.archived,
-            )
+        for user in self.users:
+            if user in select_users:
+                yield from forge.repositories_user(user)
+            else:
+                forge.logger.info("Skipping GitLab user", user=user)
+
+        if select_self:
+            yield from forge.repositories_self()
+        else:
+            forge.logger.info("Skipping GitLab self")
 
 
 class Config(pydantic.BaseSettings):
     workspace: pathlib.Path = pydantic.Field(env="GIT_RIVER_WORKSPACE", default=None)
-    forges: typing.Mapping[str, typing.Union[GitHub, GitLab]] = pydantic.Field(default_factory=dict)
+    forges: typing.Mapping[str, typing.Union[GitHubConfig, GitLabConfig]] = pydantic.Field(
+        default_factory=dict
+    )
 
     class Config:
         env_prefix = "UPSTREAM_"
@@ -292,12 +271,11 @@ class Config(pydantic.BaseSettings):
     def repository_from_url(self, url: str) -> RemoteRepository:
         return RemoteRepository.from_url(self.workspace, url)
 
-    def repositories_from_forge(self, key: str) -> typing.Iterable[RemoteRepository]:
-        return self.forges[key].remote_repositories(self.workspace)
+    def all_forges(self) -> typing.Sequence[ForgeConfig]:
+        return [forge for forge in self.forges.values()]
 
-    def repositories(self) -> typing.Iterable[RemoteRepository]:
-        for key in self.forges.keys():
-            yield from self.repositories_from_forge(key)
+    def select_forges(self, names: typing.Collection[str]) -> typing.Sequence[ForgeConfig]:
+        return [forge for name, forge in self.forges.items() if name in names]
 
 
 def configure_logging() -> None:

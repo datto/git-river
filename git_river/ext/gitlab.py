@@ -21,7 +21,7 @@ import typing
 import gitlab.v4.objects
 
 
-Project = typing.Union[
+GitLabProject = typing.Union[
     gitlab.v4.objects.GroupProject,
     gitlab.v4.objects.Project,
     gitlab.v4.objects.UserProject,
@@ -33,5 +33,5 @@ class ForkedFromProject(typing.TypedDict):
     ssh_url_to_repo: str
 
 
-def forked_from_project(project: Project) -> typing.Optional[ForkedFromProject]:
+def forked_from_project(project: GitLabProject) -> typing.Optional[ForkedFromProject]:
     return getattr(project, "forked_from_project", None)
