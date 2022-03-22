@@ -52,7 +52,7 @@ click_target_option = click.option(
     "target",
     type=click.STRING,
     default=None,
-    help="Branch commits are merged into. Defaults to main or master if they exist.",
+    help="Branch commits are merged into. Defaults to the first of 'main' or 'master'.",
 )
 
 click_upstream_remote_option = click.option(
@@ -62,7 +62,7 @@ click_upstream_remote_option = click.option(
     "upstream",
     type=click.STRING,
     default=None,
-    help="Branch to consider the upstream remote. Defaults to upstream.",
+    help="Remote to consider the \"upstream\" remote. Defaults to 'upstream' or 'origin'.",
 )
 
 click_downstream_remote_option = click.option(
@@ -73,24 +73,20 @@ click_downstream_remote_option = click.option(
     type=click.STRING,
     default=None,
     help=(
-        "Branch to consider the downstream remote. "
+        'Remote to consider the "downstream" remote. '
         "Defaults to the first of 'downstream' or 'origin'."
     ),
 )
 
-
-@click.command(name="configure")
-@click_repo_option
-def configure_options(path: pathlib.Path) -> None:
-    """Configure options."""
-    git_river.repository.LocalRepository.from_path(path).configure_options()
-
-
-@click.command(name="remotes")
-@click_repo_option
-def configure_remotes(path: pathlib.Path) -> None:
-    """Configure remotes."""
-    git_river.repository.LocalRepository.from_path(path).configure_remotes()
+click_mainline_option = click.option(
+    "-m",
+    "--mainline",
+    "--mainline-branch",
+    "mainline",
+    type=click.STRING,
+    default=None,
+    help="Branch to consider the \"mainline\" branch. Defaults to the first of 'main' or 'master'.",
+)
 
 
 @click.command(name="fetch")
@@ -102,7 +98,7 @@ def fetch_remotes(path: pathlib.Path) -> None:
 
 @click.command(name="merge")
 @click_repo_option
-@click_target_option
+@click_mainline_option
 @click.option(
     "-m",
     "--merge",
@@ -111,14 +107,17 @@ def fetch_remotes(path: pathlib.Path) -> None:
     default="merged",
     help="Branch that will contain the merged result.",
 )
-def merge_feature_branches(path: pathlib.Path, target: typing.Optional[str], merge: str) -> None:
+def merge_feature_branches(path: pathlib.Path, mainline: typing.Optional[str], merge: str) -> None:
     """
     Merge feature branches into a new 'merged' branch.
 
     By default, merges all branches prefixed 'feature/' into a branch named 'merged'.
     """
     repo = git_river.repository.LocalRepository.from_path(path)
-    repo.merge_feature_branches(target=repo.target_or_mainline_branch(target), merge=merge)
+
+    mainline = repo.discover_mainline_branch(mainline)
+
+    repo.merge_feature_branches(target=mainline, merge=merge)
 
 
 @click.command(name="tidy")
@@ -129,33 +128,39 @@ def merge_feature_branches(path: pathlib.Path, target: typing.Optional[str], mer
     type=click.BOOL,
     default=False,
 )
-@click_target_option
+@click_mainline_option
 @click_repo_option
-def tidy_branches(path: pathlib.Path, dry_run: bool, target: typing.Optional[str]) -> None:
+def tidy_branches(path: pathlib.Path, dry_run: bool, mainline: typing.Optional[str]) -> None:
     """
-    Remove branches that have been merged into a target branch.
+    Remove branches that have been merged into a mainline branch.
 
     If --branch is not set, uses the repositories configured default branch (for repositories
     discovered from a remote API), or the first branch found from 'main' and 'master'.
     """
     repo = git_river.repository.LocalRepository.from_path(path)
+
+    mainline = repo.discover_mainline_branch(mainline)
+
     repo.fetch_remotes(prune=True)
-    repo.remove_merged_branches(repo.target_or_mainline_branch(target), dry_run=dry_run)
+    repo.remove_merged_branches(mainline, dry_run=dry_run)
 
 
 @click.command(name="restart")
 @click_repo_option
 @click_upstream_remote_option
+@click_mainline_option
 def restart(
     path: pathlib.Path,
     upstream: typing.Optional[str],
+    mainline: typing.Optional[str],
 ) -> None:
     """
     Rebase the currently checked out branch using the upstream mainline branch.
     """
     repo = git_river.repository.LocalRepository.from_path(path)
-    upstream = repo.discover_remote(upstream, "upstream")
-    mainline = repo.discover_mainline_branch()
+
+    upstream = repo.discover_upstream_remote(upstream)
+    mainline = repo.discover_mainline_branch(mainline)
 
     repo.fetch_branch_from_remote(mainline, remote=upstream)
     repo.rebase(f"{upstream}/{mainline}")
@@ -177,18 +182,19 @@ def end(
     This is mostly useful when you're on a feature branch that has been merged into an upstream
     branch via a GitLab merge request or GitHub pull request.
 
-    - Updates the default branch from the 'upstream' remote.
-    - Switches to the default branch.
+    - Updates the mainline branch from the upstream remote.
+    - Switches to the mainline branch.
     - Removes any branches that have been merged into the default branch.
-    - Prunes local references to remote branches.
+    - Fetch all remotes and prunes local references to remote branches.
+    - Pushes the mainline branch to the downstream remote.
     """
     repo = git_river.repository.LocalRepository.from_path(path)
-    upstream = repo.discover_remote(upstream, "upstream")
-    downstream = repo.discover_remote(downstream, "downstream", "origin")
-    branch = repo.discover_mainline_branch()
+    upstream = repo.discover_upstream_remote(upstream)
+    downstream = repo.discover_downstream_remote(downstream)
+    mainline = repo.discover_mainline_branch()
 
-    repo.fetch_branch_from_remote(branch, remote=upstream)
-    repo.switch_to_branch(branch)
-    repo.remove_merged_branches(branch, dry_run=False)
+    repo.fetch_branch_from_remote(mainline, remote=upstream)
+    repo.switch_to_branch(mainline)
+    repo.remove_merged_branches(mainline, dry_run=False)
     repo.fetch_remotes(prune=True)
-    repo.push_to_remote(branch, remote=downstream)
+    repo.push_to_remote(mainline, remote=downstream)

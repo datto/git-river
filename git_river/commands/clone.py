@@ -29,13 +29,13 @@ logger = structlog.get_logger(logger_name=__name__)
 
 @click.command(name="clone")
 @click.argument(
-    "repositories",
-    metavar="REPOSITORY",
+    "urls",
+    metavar="URL...",
     type=click.STRING,
     nargs=-1,
 )
 @click.pass_obj
-def main(config: git_river.config.Config, repositories: typing.Sequence[str]) -> None:
-    """Clone a repository to the workspace path."""
-    for url in repositories:
+def main(config: git_river.config.Config, urls: typing.Sequence[str]) -> None:
+    """Clone repositories to the workspace path."""
+    for url in urls:
         config.repository_from_url(url).clone(verbose=True)

@@ -313,47 +313,59 @@ class LocalRepository(Repository):
         self.bind(logger).info("Rebasing", branch=branch)
         self.repo.git.rebase(branch)
 
-    def target_or_mainline_branch(self, target: typing.Optional[str]) -> str:
-        """Return the default branch if the input is None, else the input."""
-
-        if target is None:
-            return self.discover_mainline_branch()
-
-        if target not in self.repo.heads:
-            raise Exception(f"Branch {target} does not exist")
-
-        return target
-
-    def discover_mainline_branch(self) -> str:
-        if self.default_branch is None:
-            return self.discover_branch("main", "master")
-
-        return self.default_branch
-
-    def discover_branch(self, *names: typing.Optional[str]) -> str:
+    def discover_branch(self, *names: str) -> str:
         for name in names:
-            if name is None:
-                continue
-
             try:
-                remote = self.repo.heads[name]
+                return self._head(name)
             except IndexError:
-                logger.debug("No branch found", name=name)
-            else:
-                return remote.name
+                pass
 
-        raise ValueError(f"No heads found for {names=}")
+        raise ValueError(f"No heads found for {names!r}")
 
-    def discover_remote(self, *names: typing.Optional[str]) -> str:
+    def discover_mainline_branch(self, override: typing.Optional[str] = None) -> str:
+        if override is not None:
+            return self._head(override)
+
+        if self.default_branch is not None:
+            return self.default_branch
+
+        return self.discover_branch("main", "master")
+
+    def discover_remote(self, *names: str) -> str:
         for name in names:
-            if name is None:
-                continue
-
             try:
-                remote = self.repo.remote(name)
+                return self._remote(name)
             except ValueError:
-                logger.debug("No remote found", name=name)
-            else:
-                return remote.name
+                pass
 
-        raise ValueError(f"No remotes found for {names=}")
+        raise ValueError(f"No remotes found for {names!r}")
+
+    def discover_upstream_remote(self, override: typing.Optional[str] = None) -> str:
+        if override is not None:
+            return self._remote(override)
+
+        return self.discover_remote("upstream", "origin")
+
+    def discover_downstream_remote(self, override: typing.Optional[str] = None) -> str:
+        if override is not None:
+            return self._remote(override)
+
+        return self.discover_remote("downstream")
+
+    def _head(self, name: str) -> str:
+        """Check a head exists."""
+        try:
+            head = self.repo.heads[name]
+        except ValueError as error:
+            logger.debug("No head found", name=name)
+            raise error
+        return head.name
+
+    def _remote(self, name: str) -> str:
+        """Check a remote exists."""
+        try:
+            remote = self.repo.remote(name)
+        except ValueError as error:
+            logger.debug("No remote found", name=name)
+            raise error
+        return remote.name

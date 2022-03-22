@@ -27,14 +27,20 @@ import git_river.commands.repo
 import git_river.config
 
 
-@click.command(name="config")
+@click.group(name="config")
+def main():
+    """Manage git-river's own configuration file."""
+    pass
+
+
+@main.command(name="display")
 @click.pass_obj
 def display_config(config: git_river.config.Config) -> None:
     """Dump the current configuration as JSON."""
     print(config.json(indent=2, by_alias=True))
 
 
-@click.command(name="init")
+@main.command(name="init")
 @click.argument(
     "workspace",
     type=click.Path(
@@ -46,6 +52,8 @@ def display_config(config: git_river.config.Config) -> None:
 )
 @click.pass_obj
 def init_config(config: git_river.config.Config, workspace: str) -> None:
+    """Create the configuration file."""
+
     config.workspace = pathlib.Path(workspace)
 
     if git_river.config.CONFIG_PATH.exists():
@@ -57,7 +65,7 @@ def init_config(config: git_river.config.Config, workspace: str) -> None:
     git_river.config.CONFIG_PATH.write_text(config.json(indent=2, by_alias=True))
 
 
-@click.command(name="workspace")
+@main.command(name="workspace")
 @click.pass_obj
 def display_workspace(config: git_river.config.Config) -> None:
     """Print the workspace path."""
