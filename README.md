@@ -1,21 +1,24 @@
 git river
 =========
 
-`git river workspace` will manage a "workspace" path you configure, cloning
-and managing repositories from configured GitHub and GitLab groups.
+`git-river` is a tool designed to make it easier to work with large
+numbers of GitHub and GitLab projects and "forking" workflow that involve
+pulling changes from "upstream" repositories and pushing to "downstream"
+repositories. 
 
-Repositories will be organized by the domain and path of the remote GitHub
-repository or GitLab project.
+`git-river` will manage a "workspace" path you configure, cloning repositories
+into that directory with a tree-style structure organised by domain, project
+namespace, and project name.
 
 ```
 $ tree ~/workspace
 ~/workspace
 ├── github.com
 │   └── datto
-│       └── example
+│       └── git-river
 └── gitlab.com
     └── datto
-        └── example
+        └── git-river
 ```
 
 Links
@@ -39,37 +42,53 @@ Usage
 Run `git-river <subcommand>`. Git's builtin aliasing also allows you to
 run `git river` instead.
 
-```bash
-git-river --help
-```
+Before you can use `git-river` you must configure a workspace path by running
+`git-river init PATH` or setting the `GIT_RIVER_WORKSPACE` environment variable.
+This should point to a directory `git-river` can use to clone git repositories
+into.
 
-- `git river config` displays the current configuration.
+Several commands will attempt to discover various names, and usually have an
+option flag to override discovery.
 
-- `git river workspace` manages the workspace path.
+- The "upstream" remote is the first of `upstream` or `origin` that exists. Override with `--upstream`.
+- The "downstream" remote is the first of `downstream` that exists. Override with `--downstream`.
+- The "mainline" branch is the first of `main` or `master` that exists. Override with `--mainline`.
 
-  Run without any subcommand, it runs all workspace subcommands except `list`
-  and `fetch`.
+### Subcommands
 
-  - `git river workspace clone` clones repositories.
-  - `git river workspace configure` sets git config options.
-  - `git river workspace fetch` fetches each git remote.
-  - `git river workspace list` displays remote repos that will be cloned.
-  - `git river workspace remotes` sets `upstream` and `origin` remotes.
-  - `git river workspace tidy` deletes merged branches.
+- `git river clone URL...` clones a repository into the workspace path.
 
-- `git river repo` manages the repository in the current directory.
+- `git river config` manages the configuration file.
 
-  This mostly matches the features from the `workspace` subcommand.
+  - `git river config display` prints the loaded configuration as JSON. Credentials are redacted.
+  - `git river config init` creates an initial config file.
+  - `git river config workspace` prints the workspace path.
 
-  - `git river repo configure` sets git config options.
-  - `git river repo fetch` fetches each git remote.
-  - `git river repo remotes` sets `upstream` and `origin` remotes.
-  - `git river repo tidy` deletes merged branches.
+- `git river forge` manages repositories listed by GitHub and GitLab.
+
+  - `git river forge` runs the `clone` + `archived` + `configure` + `remotes` subcommands.
+  - `git river forge clone` clones repositories.
+  - `git river forge configure` sets git config options.
+  - `git river forge fetch` fetches each git remote.
+  - `git river forge list` displays remote repositories that will be cloned.
+  - `git river forge remotes` sets `upstream`+`downstream` or `origin` remotes.
+  - `git river forge tidy` deletes branches merged into the mainline branch.
+  - `git river forge archived` lists archived repositories that exist locally.
+
+- `git river` also provides some "loose" subcommands that work on the repository
+  in the current directory, mostly matching the features from the `forge`
+  subcommand.
+
+  - `git river fetch` fetches all git remotes.
+  - `git river merge` creates the merge result of all `feature/*` branches.
+  - `git river tidy` deletes branches merged into the mainline branch.
+  - `git river restart` rebases the current branch from the upstream remotes mainline branch.
 
 Configuration
 -------------
 
-Configuration is a JSON object read from `~/.config/git-river/config.json`.
+Configuration is a JSON object read from `~/.config/git-river/config.json`. Run
+`git-river config init` to create an example configuration file.
 
 - `path` - path to a directory to use as the "workspace".
 - `forges` - a map of forges.

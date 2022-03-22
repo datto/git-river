@@ -69,6 +69,7 @@ def value_or_default(value: typing.Optional[T], default: T) -> T:
     "--forge",
     "select_forges",
     default=(),
+    metavar="NAME",
     multiple=True,
     help="Use repositories from specific forges.",
 )
@@ -76,9 +77,10 @@ def value_or_default(value: typing.Optional[T], default: T) -> T:
     "-g",
     "-o",
     "--group",
-    "--organization",
+    "--org",
     "select_groups",
     default=(),
+    metavar="NAME",
     multiple=True,
     help="Use repositories from specific groups.",
 )
@@ -87,6 +89,7 @@ def value_or_default(value: typing.Optional[T], default: T) -> T:
     "--user",
     "select_users",
     default=(),
+    metavar="NAME",
     multiple=True,
     help="Use repositories from specific users.",
 )
@@ -95,8 +98,9 @@ def value_or_default(value: typing.Optional[T], default: T) -> T:
     "--self",
     "select_self",
     default=None,
+    metavar="NAME",
     is_flag=True,
-    help="Use repositories from specific users.",
+    help="Use repositories from the authenticated user.",
 )
 @click.pass_context
 def main(
@@ -109,11 +113,11 @@ def main(
     """
     Clone and manage repositories from GitLab and GitHub in bulk.
 
-    Selects from all forges unless '--forge' flags are passed.
+    Selects from all forges unless '--forge' flags are passed. Selects from all repositories unless
+    any '--group', '--user', or '--self' flags are passed.
 
-    Selects from all repositories unless any '--group', '--user', or '--self' flags are passed.
-
-    Invokes the clone, configure, and remotes subcommands when no subcommand is given.
+    Invokes the 'clone', 'archived', 'configure', and 'remotes' subcommands when no subcommand is
+    given.
     """
     config = ctx.ensure_object(git_river.config.Config)
     ctx.obj = RepositoryManager()
@@ -146,14 +150,6 @@ def main(
         ctx.invoke(configure_remotes)
 
 
-@main.command(name="archived")
-@click.pass_obj
-def archived_repositories(workspace: RepositoryManager) -> None:
-    for repo in workspace.existing():
-        if repo.archived:
-            logger.warning("Local repository is archived", repo=repo.name)
-
-
 @main.command(name="clone")
 @click.pass_obj
 def clone_repositories(workspace: RepositoryManager) -> None:
@@ -180,6 +176,15 @@ def clone_repositories(workspace: RepositoryManager) -> None:
 
     for local_repo in cloned:
         local_repo.bind(logger).info("Cloned repository")
+
+
+@main.command(name="archived")
+@click.pass_obj
+def archived_repositories(workspace: RepositoryManager) -> None:
+    """Display a warning for archived repositories that exist locally."""
+    for repo in workspace.existing():
+        if repo.archived:
+            logger.warning("Local repository is archived", repo=repo.name)
 
 
 @main.command(name="configure")
@@ -243,7 +248,9 @@ def tidy(workspace: RepositoryManager, dry_run: bool, target: typing.Optional[st
     """
     logger.info("Removing merged branches")
     for repo in workspace.existing():
-        repo.remove_merged_branches(target=repo.target_or_mainline_branch(target), dry_run=dry_run)
+        mainline = repo.discover_mainline_branch(target)
+
+        repo.remove_merged_branches(target=mainline, dry_run=dry_run)
 
 
 @main.command(name="list")
