@@ -186,15 +186,16 @@ def end(
     - Switches to the mainline branch.
     - Removes any branches that have been merged into the default branch.
     - Fetch all remotes and prunes local references to remote branches.
-    - Pushes the mainline branch to the downstream remote.
+    - Pushes the mainline branch to the downstream remote (if a downstream remote exists).
     """
     repo = git_river.repository.LocalRepository.from_path(path)
     upstream = repo.discover_upstream_remote(upstream)
-    downstream = repo.discover_downstream_remote(downstream)
     mainline = repo.discover_mainline_branch()
 
     repo.fetch_branch_from_remote(mainline, remote=upstream)
     repo.switch_to_branch(mainline)
     repo.remove_merged_branches(mainline, dry_run=False)
     repo.fetch_remotes(prune=True)
-    repo.push_to_remote(mainline, remote=downstream)
+
+    if downstream := repo.discover_optional_downstream_remote(downstream):
+        repo.push_to_remote(mainline, remote=downstream)

@@ -35,6 +35,10 @@ p = inflect.engine()
 logger = structlog.get_logger(logger_name=__name__)
 
 
+class Missing(ValueError):
+    pass
+
+
 @dataclasses.dataclass(frozen=True)
 class GitConfigKey:
     section: str
@@ -320,7 +324,7 @@ class LocalRepository(Repository):
             except IndexError:
                 pass
 
-        raise ValueError(f"No heads found for {names!r}")
+        raise Missing(f"No heads found for {names!r}")
 
     def discover_mainline_branch(self, override: typing.Optional[str] = None) -> str:
         if override is not None:
@@ -338,7 +342,7 @@ class LocalRepository(Repository):
             except ValueError:
                 pass
 
-        raise ValueError(f"No remotes found for {names!r}")
+        raise Missing(f"No remotes found for {names!r}")
 
     def discover_upstream_remote(self, override: typing.Optional[str] = None) -> str:
         if override is not None:
@@ -352,13 +356,29 @@ class LocalRepository(Repository):
 
         return self.discover_remote("downstream")
 
+    def discover_optional_downstream_remote(
+        self,
+        override: typing.Optional[str] = None,
+    ) -> typing.Optional[str]:
+        """
+        If we can't find a downstream remote, return None instead of raising an error.
+
+        An error is still raised if a remote was explicitly specified.
+        """
+        if override is not None:
+            return self._remote(override)
+
+        try:
+            return self.discover_remote("downstream")
+        except Missing:
+            return None
+
     def _head(self, name: str) -> str:
         """Check a head exists."""
         try:
             head = self.repo.heads[name]
         except ValueError as error:
-            logger.debug("No head found", name=name)
-            raise error
+            raise Missing(f"No head found named {name!r}") from error
         return head.name
 
     def _remote(self, name: str) -> str:
@@ -366,6 +386,5 @@ class LocalRepository(Repository):
         try:
             remote = self.repo.remote(name)
         except ValueError as error:
-            logger.debug("No remote found", name=name)
-            raise error
+            raise Missing(f"No remote found named {name!r}") from error
         return remote.name
