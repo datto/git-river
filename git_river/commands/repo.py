@@ -145,11 +145,11 @@ def tidy_branches(path: pathlib.Path, dry_run: bool, mainline: typing.Optional[s
     repo.remove_merged_branches(mainline, dry_run=dry_run)
 
 
-@click.command(name="restart")
+@click.command(name="rebase")
 @click_repo_option
 @click_upstream_remote_option
 @click_mainline_option
-def restart(
+def rebase(
     path: pathlib.Path,
     upstream: typing.Optional[str],
     mainline: typing.Optional[str],
