@@ -234,16 +234,21 @@ class LocalRepository(Repository):
         """Remove branches that have been merged into the repo's default branch."""
         log = self.bind(logger).bind(target=target, dry_run=dry_run)
         merged_branches = self.merged(target)
+        active_branch = self.repo.active_branch.name
         for merged_branch in merged_branches:
+            if active_branch == merged_branch:
+                log.debug("Skipping current branch", head=merged_branch)
+                continue
+
             if merged_branch.startswith("release/"):
+                log.debug("Skipping release/* branch", head=merged_branch)
                 continue
 
             if dry_run:
                 log.info("Would delete branch", head=merged_branch)
-                continue
-
-            log.info("Deleting branch", head=merged_branch)
-            self.repo.delete_head(merged_branch)
+            else:
+                log.info("Deleting branch", head=merged_branch)
+                self.repo.delete_head(merged_branch)
 
     def merged(self, target: str) -> typing.Set[str]:
         """Return a list of branches merged into a target branch."""
