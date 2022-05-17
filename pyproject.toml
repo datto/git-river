@@ -1,10 +1,21 @@
 [tool.poetry]
 name = "git-river"
-version = "1.3.0"
+version = "1.3.1"
+readme = "README.md"
 description = "Tools for working with upstream repositories"
+homepage = "https://pypi.org/project/git-river/"
+repository = "https://github.com/datto/git-river"
 authors = ["Sam Clements <sclements@datto.com>"]
 license = "MPL-2.0"
 packages = [{ include = "git_river" }]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
+    "Topic :: Software Development :: Version Control :: Git",
+    "Topic :: Software Development :: Version Control",
+    "Topic :: Software Development",
+]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
