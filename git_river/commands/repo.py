@@ -89,11 +89,11 @@ click_mainline_option = click.option(
 )
 
 
-@click.command(name="fetch")
+@click.command(name="update")
 @click_repo_option
-def fetch_remotes(path: pathlib.Path) -> None:
-    """Fetch all remotes."""
-    git_river.repository.LocalRepository.from_path(path).fetch_remotes()
+def update_remotes(path: pathlib.Path) -> None:
+    """Update and prune all remotes."""
+    git_river.repository.LocalRepository.from_path(path).update_remotes()
 
 
 @click.command(name="merge")
@@ -141,7 +141,7 @@ def tidy_branches(path: pathlib.Path, dry_run: bool, mainline: typing.Optional[s
 
     mainline = repo.discover_mainline_branch(mainline)
 
-    repo.fetch_remotes(prune=True)
+    repo.update_remotes()
     repo.remove_merged_branches(mainline, dry_run=dry_run)
 
 
@@ -195,7 +195,7 @@ def end(
     repo.fetch_branch_from_remote(mainline, remote=upstream)
     repo.switch_to_branch(mainline)
     repo.remove_merged_branches(mainline, dry_run=False)
-    repo.fetch_remotes(prune=True)
+    repo.update_remotes()
 
     if downstream := repo.discover_optional_downstream_remote(downstream):
         repo.push_to_remote(mainline, remote=downstream)

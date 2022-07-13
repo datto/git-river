@@ -41,7 +41,7 @@ def main(ctx: click.Context) -> None:
 main.add_command(git_river.commands.clone.main)
 main.add_command(git_river.commands.config.main)
 main.add_command(git_river.commands.forge.main)
-main.add_command(git_river.commands.repo.fetch_remotes)
+main.add_command(git_river.commands.repo.update_remotes)
 main.add_command(git_river.commands.repo.merge_feature_branches)
 main.add_command(git_river.commands.repo.tidy_branches)
 main.add_command(git_river.commands.repo.rebase)
