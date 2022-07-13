@@ -207,9 +207,9 @@ def configure_remotes(workspace: RepositoryManager) -> None:
         repo.configure_remotes()
 
 
-@main.command(name="fetch")
+@main.command(name="update")
 @click.pass_obj
-def fetch_remotes(workspace: RepositoryManager) -> None:
+def update_remotes(workspace: RepositoryManager) -> None:
     """Fetch configured remotes for each repository."""
     with git_river.ext.click.progressbar(
         iterable=workspace.existing(),
@@ -218,7 +218,7 @@ def fetch_remotes(workspace: RepositoryManager) -> None:
         logger_name=__name__,
     ) as progress:
         for repo in progress:
-            repo.fetch_remotes()
+            repo.update_remotes()
 
 
 @main.command(name="tidy")
