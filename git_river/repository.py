@@ -223,12 +223,11 @@ class LocalRepository(Repository):
             log.warning("Updating remote", remote=name, new={url}, old=set(remote.urls))
             remote.set_url(url)
 
-    def fetch_remotes(self, prune: bool = True) -> None:
+    def update_remotes(self, prune: bool = True) -> None:
+        """Update (and prune) all remotes using 'git remote update'."""
         log = self.bind(logger)
-        log.info("Fetching remotes")
-        for remote in self.repo.remotes:
-            log.debug("Fetching remote", remote=remote.name)
-            remote.fetch(prune=prune, tags=True)
+        log.info("Updating remotes")
+        self.repo.git._call_process("remote", "update", insert_kwargs_after="update", prune=prune)
 
     def remove_merged_branches(self, target: str, *, dry_run: bool = True) -> None:
         """Remove branches that have been merged into the repo's default branch."""
